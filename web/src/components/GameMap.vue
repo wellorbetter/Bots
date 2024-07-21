@@ -1,7 +1,8 @@
 <template>
     <!-- ref绑定 -->
   <div ref="parent" class="gamemap">
-    <canvas ref="canvas"></canvas>
+    <!-- tabindex="0"是为了让canvas元素能够获取焦点，从而能够监听键盘事件 -->
+    <canvas ref="canvas" tabindex="0"></canvas>
   </div>
 </template>
 

@@ -1,4 +1,5 @@
 import { AcGameObject } from "./AcGameObject";  
+import { Snake } from "./Snake";
 import { Wall } from "./Wall";
 
 /**
@@ -22,18 +23,60 @@ export class GameMap extends AcGameObject {
         this.width = 0;
 
         this.rows = 13;
-        this.cols = 13;
+        this.cols = 14;
 
-        this.inner_walls_count = 20;
+        this.inner_walls_count = 10;
         this.walls = [];
+
+        this.snakes = [
+            new Snake({
+                id: 0,
+                color: "#4876EC",
+                r: this.rows - 2,
+                c: 1
+            }, this),
+            new Snake({
+                id: 1,
+                color: "#F94848",
+                r: 1,
+                c: this.cols - 2
+            }, this)
+        ]
     }
     
+    add_listening_event() {
+        this.ctx.canvas.focus();
+        const [snake0, snake1] = this.snakes;
+        this.ctx.canvas.addEventListener("keydown", (e) => {
+            if (e.key === "w") {
+                snake0.set_direction(0);
+            } else if (e.key === "d") {
+                snake0.set_direction(1);
+            }
+            if (e.key === "s") {
+                snake0.set_direction(2);
+            } else if (e.key === "a") {
+                snake0.set_direction(3);
+            } else if (e.key === "ArrowUp") {
+                snake1.set_direction(0);
+            }
+            if (e.key === "ArrowRight") {
+                snake1.set_direction(1);
+            } else if (e.key === "ArrowDown") {
+                snake1.set_direction(2);
+            } else if (e.key === "ArrowLeft") {
+                snake1.set_direction(3);
+            }
+        });
+    }
+
     start() {
-        for (let i = 0; i < 1000; i ++ ) {
+        for (let i = 0; i < 1000; i++) {
             if (this.create_walls()) {
                 break;
             }
         }
+        this.add_listening_event();
     }
     
     update_size() {
@@ -43,8 +86,60 @@ export class GameMap extends AcGameObject {
         this.ctx.canvas.height = this.width * this.rows;
     }
 
+    // 检查是否所有蛇都准备好了
+    check_ready() {
+        for (const snake of this.snakes) {
+            if (snake.status !== "idle") {
+                return false;
+            }
+            if (snake.direction === -1) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // 检查是否是有效的单元格
+    // 用于检查蛇是否撞墙 或者蛇是否撞到某个蛇(包括自己)
+    check_valid(cell) {
+        if (cell.r < 0 || cell.r >= this.rows) {
+            return false;
+        }
+        if (cell.c < 0 || cell.c >= this.cols) {
+            return false;
+        }
+        for (const wall of this.walls) {
+            if (wall.r === cell.r && wall.c === cell.c) {
+                return false;
+            }
+        }
+        for (const snake of this.snakes) {
+            let k = snake.cells.length;
+            // 如果蛇的长度不应该增加，那么就把尾巴去掉 也就是蛇向前移动了一格 那么就不用检查尾巴
+            if (!snake.check_tail_increasing()) {
+                k--;
+            }
+            for (let i = 0; i < k; i++) {
+                if (snake.cells[i].r === cell.r && snake.cells[i].c === cell.c) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    // 蛇走下一步
+    next_step() {
+        for (const snake of this.snakes) {
+            snake.next_step();
+        }
+    }
+
     update() {
         this.update_size();
+        if (this.check_ready()) {
+            this.next_step();
+        }
         this.render();
     }
     
@@ -53,7 +148,6 @@ export class GameMap extends AcGameObject {
         for (let r = 0; r < this.rows; r++) {
             for (let c = 0; c < this.cols; c++) {
                 this.ctx.fillStyle = (r + c) % 2 === 0 ? color_even : color_odd;
-                // 水平坐标 c * this.width，垂直坐标 r * this.width
                 this.ctx.fillRect(c * this.width, r * this.width, this.width, this.width);
             }
         }
@@ -61,14 +155,14 @@ export class GameMap extends AcGameObject {
 
     // 检查是否有通路
     check_connectivity(g, sx, sy, tx, ty) {
-        if (sx == tx && sy == ty) {
+        if (sx === tx && sy === ty) {
             return true;
         }
         g[sx][sy] = true;
 
         const dx = [0, 0, 1, -1];
         const dy = [1, -1, 0, 0];
-        for (let i = 0; i < 4; i ++ ) {
+        for (let i = 0; i < 4; i++) {
             const x = sx + dx[i];
             const y = sy + dy[i];
             if (x >= 0 && x < this.rows && y >= 0 && y < this.cols && !g[x][y]) {
@@ -77,52 +171,43 @@ export class GameMap extends AcGameObject {
                 }
             }
         }
+        return false; 
     }
 
     create_walls() {
-        const g = [];
-        for (let r = 0; r < this.rows; r ++ ) {
-            g[r] = [];
-            for (let c = 0; c < this.cols; c ++ ) {
-                g[r][c] = false;
-            }
-        }
+        const g = Array.from({ length: this.rows }, () => Array(this.cols).fill(false));
 
         // 创建外围墙
-        for (let r = 0; r < this.rows; r ++ ) {
+        for (let r = 0; r < this.rows; r++) {
             g[r][0] = g[r][this.cols - 1] = true;
         }
-        for (let c = 0; c < this.cols; c ++ ) {
+        for (let c = 0; c < this.cols; c++) {
             g[0][c] = g[this.rows - 1][c] = true;
         }
 
         // 创建随机内墙 轴对称
-        for (let i = 0; i < this.inner_walls_count; i ++ ) {
-            // 墙的数量比较少，循环次数不会太多
-            for (let j = 0; j < 1000; j ++ ) {
+        for (let i = 0; i < this.inner_walls_count; i++) {
+            for (let j = 0; j < 1000; j++) {
                 let r = parseInt(Math.random() * this.rows);
                 let c = parseInt(Math.random() * this.cols);
-                // 不会覆盖左下角和右上角的蛇的位置
-                if (r == this.rows - 2 && c == 1 || r == 1 && c == this.cols - 2) {
+                if ((r === this.rows - 2 && c === 1) || (r === 1 && c === this.cols - 2)) {
                     continue;
                 }
-                if (g[r][c] || g[c][r]) {
+                if (g[r][c] || g[this.rows - 1 - r][this.cols - 1 - c]) {
                     continue;
                 }
-                g[r][c] = g[c][r] = true;
+                g[r][c] = g[this.rows - 1 - r][this.cols - 1 - c] = true;
                 break;
             }
         }
 
-        // deepcopy dfs这里会修改g，所以需要深拷贝
         const copy_g = JSON.parse(JSON.stringify(g));
-        // 经典迷宫dfs检查是否有通路
         if (!this.check_connectivity(copy_g, this.rows - 2, 1, 1, this.cols - 2)) {
             return false;
         }
-        // 画墙
-        for (let r = 0; r < this.rows; r ++ ) {
-            for (let c = 0; c < this.cols; c ++ ) {
+
+        for (let r = 0; r < this.rows; r++) {
+            for (let c = 0; c < this.cols; c++) {
                 if (g[r][c]) {
                     this.walls.push(new Wall(r, c, this));
                 }
